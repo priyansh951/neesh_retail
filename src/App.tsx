@@ -114,7 +114,9 @@ export default function App() {
             <div className="mb-8 p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-between gap-4">
               <div className="flex items-center gap-3">
                 <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                <p className="text-xs font-bold text-rose-400 uppercase tracking-widest">{error}</p>
+                <p className="text-xs font-bold text-rose-400 uppercase tracking-widest">
+                  {typeof error === "string" ? error : JSON.stringify(error)}
+                </p>
               </div>
             </div>
           )}

@@ -36,12 +36,19 @@ export function useSalesData() {
         }
       });
       
-      const result = await response.json();
-
+      const text = await response.text();
+      let result;
+      try {
+        result = JSON.parse(text);
+      } catch (e) {
+        console.error(`[UI_ERROR] Failed to parse JSON. Raw body:`, text.slice(0, 200));
+        throw new Error(`Server returned non-JSON response (likely a 404 or Error page). Raw: ${text.slice(0, 50)}...`);
+      }
+      
       if (!response.ok) {
         const serverError = result.error || `Server Error ${response.status}`;
         console.error(`[UI_ERROR] Server rejected request:`, serverError, result);
-        throw new Error(serverError);
+        throw new Error(String(serverError));
       }
 
       if (result.success && result.data) {

@@ -10,10 +10,10 @@ const app = express();
 const PORT = 3000;
 
 async function fetchGoogleSheetsData() {
-  const publicCsvUrl = process.env.GOOGLE_SHEETS_CSV_URL;
+  const publicCsvUrl = process.env.GOOGLE_SHEETS_CSV_URL?.trim();
 
   if (!publicCsvUrl) {
-    console.warn("GOOGLE_SHEETS_CSV_URL not configured.");
+    console.error("[PROD_ERROR] GOOGLE_SHEETS_CSV_URL is missing or empty.");
     return null;
   }
 
@@ -22,11 +22,11 @@ async function fetchGoogleSheetsData() {
     const bustedUrl = `${publicCsvUrl}${separator}t=${Date.now()}`;
     
     // Safety check for common mistake: providing the spreadsheet URL instead of the CSV export URL
-    if (publicCsvUrl.includes("/edit") || !publicCsvUrl.includes("csv")) {
-      console.warn("[PROD_WARN] The GOOGLE_SHEETS_CSV_URL might be a spreadsheet link instead of a CSV export link. Ensure you use 'File > Share > Publish to Web > CSV'.");
+    if (publicCsvUrl.includes("/edit") || !publicCsvUrl.includes("output=csv")) {
+      console.warn("[PROD_WARN] GOOGLE_SHEETS_CSV_URL may be an incorrect link. Ensure you use 'File > Share > Publish to Web' and select 'CSV' as the output format.");
     }
 
-    console.log(`[PROD_LOG] [${new Date().toISOString()}] Initiating fetch: ${bustedUrl.replace(/key=[^&]+/, "key=REDACTED")}`);
+    console.log(`[PROD_LOG] [${new Date().toISOString()}] Attempting fetch: ${bustedUrl.split('?')[0]}...`);
     
     const response = await fetch(bustedUrl, {
       method: 'GET',
@@ -40,15 +40,20 @@ async function fetchGoogleSheetsData() {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error(`[PROD_ERROR] Google Sheets returned ${response.status}: ${errorText}`);
-      throw new Error(`Google Sheets responded with ${response.status} ${response.statusText}`);
+      console.error(`[PROD_ERROR] Google Sheets returned ${response.status}: ${errorText.slice(0, 200)}`);
+      throw new Error(`Google Sheets responded with ${response.status}: ${response.statusText}`);
     }
 
     const csvText = await response.text();
     
     if (!csvText || csvText.length < 50) {
-      console.error(`[PROD_ERROR] Received tiny/empty CSV response. Ensure the sheet is Published to the Web.`);
-      throw new Error("Received empty data from Google Sheets. Ensure your Sheet is Published to the Web as CSV.");
+      console.error(`[PROD_ERROR] Received inadequate CSV response. Length: ${csvText?.length}. Is the sheet published correctly?`);
+      throw new Error("Received empty or malformed data. Verify your Google Sheet is 'Published to the Web' as a CSV.");
+    }
+
+    if (csvText.includes("<!DOCTYPE html>") || csvText.includes("<html")) {
+      console.error("[PROD_ERROR] Received HTML instead of CSV. Link is likely private or incorrect.");
+      throw new Error("Received HTML content instead of CSV. Ensure the link is a public 'Publish to Web' CSV export link, NOT a private sharing link.");
     }
 
     const results = Papa.parse(csvText, {
