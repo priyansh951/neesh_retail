@@ -18,36 +18,51 @@ async function fetchGoogleSheetsData() {
   }
 
   try {
-    // Add timestamp cache-busting to the URL
     const separator = publicCsvUrl.includes("?") ? "&" : "?";
     const bustedUrl = `${publicCsvUrl}${separator}t=${Date.now()}`;
     
-    console.log(`[${new Date().toISOString()}] Fetching fresh data from: ${bustedUrl}`);
+    // Safety check for common mistake: providing the spreadsheet URL instead of the CSV export URL
+    if (publicCsvUrl.includes("/edit") || !publicCsvUrl.includes("csv")) {
+      console.warn("[PROD_WARN] The GOOGLE_SHEETS_CSV_URL might be a spreadsheet link instead of a CSV export link. Ensure you use 'File > Share > Publish to Web > CSV'.");
+    }
+
+    console.log(`[PROD_LOG] [${new Date().toISOString()}] Initiating fetch: ${bustedUrl.replace(/key=[^&]+/, "key=REDACTED")}`);
     
     const response = await fetch(bustedUrl, {
+      method: 'GET',
       headers: {
         'Cache-Control': 'no-cache, no-store, must-revalidate',
         'Pragma': 'no-cache',
-        'Expires': '0'
+        'Expires': '0',
+        'User-Agent': 'Broadway-Analytics-Dashboard/1.0'
       }
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to fetch CSV: ${response.statusText}`);
+      const errorText = await response.text();
+      console.error(`[PROD_ERROR] Google Sheets returned ${response.status}: ${errorText}`);
+      throw new Error(`Google Sheets responded with ${response.status} ${response.statusText}`);
     }
 
     const csvText = await response.text();
+    
+    if (!csvText || csvText.length < 50) {
+      console.error(`[PROD_ERROR] Received tiny/empty CSV response. Ensure the sheet is Published to the Web.`);
+      throw new Error("Received empty data from Google Sheets. Ensure your Sheet is Published to the Web as CSV.");
+    }
+
     const results = Papa.parse(csvText, {
       header: true,
-      skipEmptyLines: true,
+      skipEmptyLines: "greedy",
       transformHeader: (header) => header.trim(),
       transform: (value) => value.trim(),
     });
 
     if (results.errors && results.errors.length > 0) {
-      console.warn("CSV Parsing errors:", results.errors);
+      console.warn("[PROD_WARN] CSV Parsing warnings:", results.errors);
     }
-
+    
+    console.log(`[PROD_LOG] Successfully parsed ${results.data.length} rows.`);
     return cleanData(results.data);
   } catch (error) {
     console.error("Error fetching from public CSV:", error);
@@ -80,8 +95,28 @@ function cleanData(data: any[]): any[] {
 }
 
 // API routes
+app.get("/api/health", (req, res) => {
+  res.json({ 
+    status: "ok", 
+    timestamp: new Date().toISOString(),
+    env_loaded: !!process.env.GOOGLE_SHEETS_CSV_URL,
+    node_env: process.env.NODE_ENV
+  });
+});
+
 app.get("/api/sales", async (req, res) => {
   try {
+    const csvUrl = process.env.GOOGLE_SHEETS_CSV_URL;
+    
+    if (!csvUrl) {
+      console.error("CRITICAL: GOOGLE_SHEETS_CSV_URL is not defined in environment variables.");
+      return res.status(400).json({
+        success: false,
+        error: "Server Configuration Error: GOOGLE_SHEETS_CSV_URL is missing. Please add it to Vercel environment variables.",
+        source: "none"
+      });
+    }
+
     const data = await fetchGoogleSheetsData();
     
     if (!data || data.length === 0) {
@@ -125,4 +160,8 @@ async function startServer() {
   });
 }
 
-startServer();
+export default app;
+
+if (process.env.NODE_ENV !== "production") {
+  startServer();
+}

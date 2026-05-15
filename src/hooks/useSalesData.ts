@@ -26,26 +26,35 @@ export function useSalesData() {
       setError(null);
       
       const fetchUrl = `/api/sales?t=${startTime}`;
-      console.log(`[${new Date().toLocaleTimeString()}] Dashboard Sync initiated...`);
+      console.log(`[UI_LOG] ${new Date().toLocaleTimeString()} - Syncing with server...`);
       
       const response = await fetch(fetchUrl, {
         method: "GET",
-        headers: { 'Cache-Control': 'no-cache' }
+        headers: { 
+          'Cache-Control': 'no-cache',
+          'Accept': 'application/json'
+        }
       });
       
-      if (!response.ok) throw new Error(`API Error: ${response.statusText}`);
       const result = await response.json();
 
+      if (!response.ok) {
+        const serverError = result.error || `Server Error ${response.status}`;
+        console.error(`[UI_ERROR] Server rejected request:`, serverError, result);
+        throw new Error(serverError);
+      }
+
       if (result.success && result.data) {
-        console.log(`[Sync Completed] Rows: ${result.data.length} | Latency: ${Date.now() - startTime}ms`);
+        console.log(`[UI_LOG] Sync Successful. Data Latency: ${Date.now() - startTime}ms`);
         setRawData(result.data);
         setLastUpdated(new Date());
       } else {
-        throw new Error(result.error || "No data available.");
+        throw new Error(result.error || "Unknown error occurred while syncing data.");
       }
     } catch (err: any) {
-      console.error("[Sync Failed]", err);
-      setError(err.message || "Failed to connect to Broadway API.");
+      const errorMsg = err.message || "Failed to connect to Broadway API.";
+      console.error("[UI_ERROR] Data synchronization failed:", errorMsg);
+      setError(errorMsg);
     } finally {
       setLoading(false);
     }
